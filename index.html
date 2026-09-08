@@ -464,6 +464,14 @@
   .badge-coi-none{ background:var(--neutral-soft); color:var(--neutral); }
   .badge-coi-none .dot{ background:var(--neutral); }
 
+  /* review-round badge (Manual §8.5 — 3 rounds max) */
+  .badge-round-1{ background:var(--neutral-soft); color:var(--neutral); }
+  .badge-round-1 .dot{ background:var(--neutral); }
+  .badge-round-2{ background:var(--violet-soft); color:var(--violet); }
+  .badge-round-2 .dot{ background:var(--violet); }
+  .badge-round-3{ background:var(--danger-soft); color:var(--danger); }
+  .badge-round-3 .dot{ background:var(--danger); }
+
   /* ---------- main panel ---------- */
   .main-panel{
     background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
@@ -2250,6 +2258,36 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     return '<span class="badge '+d.statusClass+'"><span class="dot"></span>'+d.status+'</span>';
   }
 
+  // Review-round indicator (Manual §8.5): a program gets at most 3 total
+  // review rounds — Round 1 = Initial review, Round 2 = Compliance report
+  // (first re-review), Round 3 = PA-R3 out/in (final re-review, Outcome B
+  // unavailable). Keyed off stage NAME rather than index, same reasoning
+  // as the status logic above, so it stays correct with custom steps or
+  // the "Sent to reviewers" stage inserted ahead of the usual 10.
+  function roundInfo(d){
+    var idxCompliance, idxR3Out, idxFinal;
+    d.stages.forEach(function(s, i){
+      if(s.name === 'Compliance report' && idxCompliance === undefined) idxCompliance = i;
+      if(s.name === 'PA-R3 out' && idxR3Out === undefined) idxR3Out = i;
+      if(s.name === 'Final decision' && idxFinal === undefined) idxFinal = i;
+    });
+    var cur = d.currentStage;
+    if(idxFinal !== undefined && cur >= idxFinal) return null;
+    if(idxR3Out !== undefined && cur >= idxR3Out){
+      return {cls:'badge-round-3', label:'Round 3 of 3 — FINAL: Outcome must be A or C'};
+    }
+    if(idxCompliance !== undefined && cur >= idxCompliance){
+      return {cls:'badge-round-2', label:'Round 2 of 3'};
+    }
+    return {cls:'badge-round-1', label:'Round 1'};
+  }
+
+  function roundBadgeHtml(d){
+    var r = roundInfo(d);
+    if(!r) return '';
+    return '<span class="badge '+r.cls+'"><span class="dot"></span>'+r.label+'</span>';
+  }
+
   var STATUS_COLORS = {
     'Accredited':'#0E7C6B', 'In Re-Review':'#4C3AA6', 'Pending Review':'#B4650B', 'Action Required':'#AE1F35'
   };
@@ -2752,7 +2790,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
       '</div>'+
       reviewerBlock+
       '<div class="ladder-wrap"><div class="ladder">'+ladderHtml+'</div></div>'+
-      '<div class="stage-list-head"><h3>Stage checklist</h3><p>Check a stage complete and set its date — the dashboard updates instantly</p></div>'+
+      '<div class="stage-list-head"><div><h3>Stage checklist</h3><p>Check a stage complete and set its date — the dashboard updates instantly</p></div>'+roundBadgeHtml(d)+'</div>'+
       '<div>'+stageRows+'</div>'+
       '<div class="notes-block"><label for="notesField">Notes / standard requirements</label>'+
         '<textarea id="notesField" placeholder="e.g. compliance conditions, evidence outstanding, standard references…">'+escapeHtml(p.notes||'')+'</textarea>'+
