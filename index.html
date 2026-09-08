@@ -629,6 +629,17 @@
   .add-reviewer-form{ display:flex; gap:8px; margin-top:14px; flex-wrap:wrap; align-items:center; }
   .add-reviewer-form .search-input{ max-width:260px; }
 
+  /* reviewer workload (read-only current-assignment count) */
+  .workload-row{
+    display:grid; grid-template-columns:180px 1fr 34px; gap:12px; align-items:center;
+    padding:8px 4px; border-bottom:1px solid var(--border);
+  }
+  .workload-row:last-child{ border-bottom:none; }
+  .workload-name{ font-size:13px; font-weight:600; color:var(--ink); }
+  .workload-bar{ height:8px; border-radius:999px; background:var(--surface-alt); overflow:hidden; }
+  .workload-bar-fill{ height:100%; border-radius:999px; background:var(--violet); }
+  .workload-count{ font-family:var(--font-mono); font-size:13px; font-weight:600; color:var(--ink-soft); text-align:right; }
+
   /* COI register */
   .coi-summary-row{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
   .coi-summary-chip{
@@ -695,6 +706,8 @@
     .stage-row{ grid-template-columns:26px 22px 1fr; }
     .stage-control{ grid-column:1 / -1; margin-top:6px; }
     .reviewer-row{ grid-template-columns:1fr; }
+    .workload-row{ grid-template-columns:1fr auto; }
+    .workload-bar{ grid-column:1 / -1; margin-top:2px; }
     .stage-lib-row{ grid-template-columns:28px 1fr; }
     .insert-form{ grid-template-columns:1fr; }
 
@@ -2866,6 +2879,18 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
   function renderReviewersView(){
     var root = document.getElementById('viewReviewers');
 
+    /* --- workload --- */
+    var workloadRows = reviewerWorkload();
+    var maxWorkload = workloadRows.reduce(function(m,row){ return Math.max(m, row.count); }, 0) || 1;
+    var workloadHtml = workloadRows.length ? workloadRows.map(function(row){
+      var pct = Math.round((row.count / maxWorkload) * 100);
+      return '<div class="workload-row">'+
+        '<div class="workload-name">'+escapeHtml(row.name)+'</div>'+
+        '<div class="workload-bar"><div class="workload-bar-fill" style="width:'+pct+'%"></div></div>'+
+        '<div class="workload-count">'+row.count+'</div>'+
+      '</div>';
+    }).join('') : '<div class="empty-note">No reviewers are currently assigned to any application.</div>';
+
     /* --- roster --- */
     var rosterRows = reviewers.length ? reviewers.map(function(r){
       var assigned = programs.filter(function(p){ return (p.reviewerIds||[]).indexOf(r.id) > -1; });
@@ -2927,6 +2952,11 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
       : (filteredAudit.length > 50 ? '<div class="audit-count-note">Showing all '+filteredAudit.length+' matching entries</div>' : '');
 
     root.innerHTML =
+      '<div class="panel-section">'+
+        '<div class="section-head"><div><h2>Reviewer workload</h2><p>How many applications currently list each reviewer as assigned, highest first — a live snapshot, not a historical log.</p></div></div>'+
+        '<div id="reviewerWorkload">'+workloadHtml+'</div>'+
+      '</div>'+
+
       '<div class="panel-section">'+
         '<div class="section-head"><div><h2>Reviewer roster</h2><p>Assign reviewers to applications and keep availability current. Unavailable reviewers show struck through in the applications tab until reassigned.</p></div></div>'+
         '<div id="reviewerRoster">'+rosterRows+'</div>'+
@@ -3414,6 +3444,25 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     var list = reviewersForProgram(p).filter(function(x){ return x.reviewer; });
     if(!list.length) return 'Unassigned';
     return list.map(function(x){ return 'R'+x.slot+': '+x.reviewer.name; }).join(' \u00b7 ');
+  }
+
+  // Read-only current-assignment count per reviewer \u2014 a live snapshot of
+  // p.reviewerIds across all programs, not a historical log. Only
+  // reviewers with at least one assignment right now show up, sorted
+  // highest-loaded first.
+  function reviewerWorkload(){
+    var counts = {};
+    programs.forEach(function(p){
+      (p.reviewerIds || []).forEach(function(rid){
+        if(rid){ counts[rid] = (counts[rid] || 0) + 1; }
+      });
+    });
+    var rows = Object.keys(counts).map(function(rid){
+      var r = findReviewer(rid);
+      return { id: rid, name: r ? r.name : 'Unknown reviewer', count: counts[rid] };
+    });
+    rows.sort(function(a,b){ return b.count - a.count || a.name.localeCompare(b.name); });
+    return rows;
   }
 
   function addReviewer(){
