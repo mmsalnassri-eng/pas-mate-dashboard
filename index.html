@@ -571,6 +571,7 @@
 
   .notes-block{ margin-top:20px; }
   .notes-block label{ font-size:12px; font-weight:600; color:var(--ink-soft); display:block; margin-bottom:6px; }
+  .notes-block .notes-caption{ font-size:11.5px; color:var(--ink-faint); margin:-2px 0 8px; }
   .notes-block textarea{
     width:100%; min-height:64px; border:1px solid var(--border-strong); border-radius:var(--radius-sm);
     padding:9px 10px; font-size:13px; color:var(--ink); resize:vertical; background:var(--surface);
@@ -2806,6 +2807,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
       '<div class="stage-list-head"><div><h3>Stage checklist</h3><p>Check a stage complete and set its date — the dashboard updates instantly</p></div>'+roundBadgeHtml(d)+'</div>'+
       '<div>'+stageRows+'</div>'+
       '<div class="notes-block"><label for="notesField">Notes / standard requirements</label>'+
+        '<p class="notes-caption">Record the gap and what\'s required — don\'t specify how the institution should close it (Manual §2.3).</p>'+
         '<textarea id="notesField" placeholder="e.g. compliance conditions, evidence outstanding, standard references…">'+escapeHtml(p.notes||'')+'</textarea>'+
       '</div>'+
       '<div style="margin-top:14px; display:flex; gap:8px;">'+
