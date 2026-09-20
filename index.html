@@ -2819,7 +2819,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
         '<div class="detail-head-right">'+
           badgeHtml(d)+
           '<button class="btn btn-sm" id="downloadPdfBtn">\u2B07 PDF report</button>'+
-          '<button class="btn btn-sm" id="copyReviewerSafeBtn" title="Copies a summary with the institution name replaced by its code, for pasting into reviewer correspondence">\uD83D\uDD12 Copy reviewer-safe summary</button>'+
           '<button class="btn btn-danger btn-sm" id="deleteProgramBtn">Remove application</button>'+
         '</div>'+
       '</div>'+
@@ -2881,7 +2880,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     panel.querySelector('#notesField').addEventListener('change', function(){ logProgramFieldEdit('notes'); });
     panel.querySelector('#deleteProgramBtn').addEventListener('click', function(){ deleteProgram(p.id); });
     panel.querySelector('#downloadPdfBtn').addEventListener('click', function(){ downloadApplicationReportPDF(p.id); });
-    panel.querySelector('#copyReviewerSafeBtn').addEventListener('click', function(){ copyReviewerSafeSummary(p.id); });
 
     Array.prototype.forEach.call(panel.querySelectorAll('.reviewer-picker'), function(sel){
       sel.addEventListener('change', function(){
@@ -4285,18 +4283,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     return p.programCode;
   }
 
-  // Best-effort only: catches exact, literal occurrences of the
-  // institution's name as currently spelled. It will NOT catch
-  // abbreviations, partial mentions, or alternate spellings — treat
-  // this as a first pass, not a guarantee, and skim the result before
-  // sending it anywhere.
-  function sanitizeForReviewer(text, institutionName, code){
-    if(!text || !institutionName || !code){ return text || ''; }
-    var escaped = institutionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    var re = new RegExp(escaped, 'gi');
-    return text.replace(re, code);
-  }
-
   // Copies just the institution code — used for the small "Copy" button
   // next to the code display, separate from the full reviewer-safe
   // summary below. Confirms by briefly changing the button's own label
@@ -4360,50 +4346,6 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
       ta.select();
       try{ document.execCommand('copy'); flash(); }
       catch(err){ manualFallback(); }
-      document.body.removeChild(ta);
-    }
-  }
-
-  // Builds a small, copy-pasteable text block for reviewer
-  // correspondence: institution code instead of the real name, plus
-  // the sanitized notes field. Copies to the clipboard where available,
-  // falling back to a temporary textarea + execCommand for browsers
-  // without the async Clipboard API enabled.
-  function copyReviewerSafeSummary(programId){
-    var p = findProgram(programId);
-    if(!p){ window.alert('Select an application first.'); return; }
-
-    var code = getOrCreateInstitutionCode(p);
-    var d = computeDerived(p);
-    var safeNotes = sanitizeForReviewer(p.notes, p.institution, code);
-
-    var lines = [
-      'Institution code: ' + (code || 'N/A'),
-      'Program: ' + (p.program || ''),
-      'Status: ' + (d.status || ''),
-      'Reference: ' + (p.reference || ''),
-      safeNotes ? ('Notes: ' + safeNotes) : null
-    ].filter(function(line){ return line !== null; });
-    var summary = lines.join('\n');
-
-    function done(){
-      logActivity('Added', 'Reviewer-safe summary copied: ' + p.program + ' (' + code + ')');
-      window.alert('Reviewer-safe summary copied to clipboard.\n\n' + summary);
-    }
-
-    if(navigator.clipboard && navigator.clipboard.writeText){
-      navigator.clipboard.writeText(summary).then(done, function(){
-        window.alert('Could not copy automatically — here is the text to copy manually:\n\n' + summary);
-      });
-    } else {
-      var ta = document.createElement('textarea');
-      ta.value = summary;
-      ta.style.position = 'fixed';
-      ta.style.opacity = '0';
-      document.body.appendChild(ta);
-      ta.select();
-      try{ document.execCommand('copy'); done(); }
-      catch(err){ window.alert('Could not copy automatically — here is the text to copy manually:\n\n' + summary); }
       document.body.removeChild(ta);
     }
   }
