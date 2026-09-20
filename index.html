@@ -3320,6 +3320,38 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     return true;
   }
 
+  // Institution codes only ever get minted lazily — when someone types an
+  // institution name and clicks away, or hits the code's own Copy button
+  // (see getOrCreateInstitutionCode). An application whose institution
+  // field was already filled in before that logic existed, and that
+  // nobody has since re-touched, never triggers either path — so it sits
+  // with no institution code indefinitely. This backfills every such
+  // application in one pass, the first time any client on the updated
+  // file loads, correctly sharing ONE code across every application from
+  // the same institution (never minting a separate code per application)
+  // exactly the way getOrCreateInstitutionCode shares codes when it runs
+  // normally — this just does that matching up front, for everything at
+  // once, instead of waiting for each application to be touched one by one.
+  function backfillInstitutionCodes(){
+    var byNorm = {}; // normalized institution name -> its existing code, where one's already set somewhere
+    programs.forEach(function(p){
+      var norm = normalizeInstitutionName(p.institution);
+      if(norm && p.institutionCode && !byNorm[norm]){ byNorm[norm] = p.institutionCode; }
+    });
+    var touched = 0;
+    programs.forEach(function(p){
+      var norm = normalizeInstitutionName(p.institution);
+      if(!norm || p.institutionCode){ return; } // no institution name yet, or already coded
+      if(!byNorm[norm]){ byNorm[norm] = generateInstitutionCode(); }
+      p.institutionCode = byNorm[norm];
+      touched++;
+    });
+    if(!touched) return false;
+    logAudit('data', 'Assigned an institution code to '+touched+' existing application(s) that predated the institution code system.');
+    logActivity('Updated', 'Institution codes backfilled for '+touched+' existing application(s)');
+    return true;
+  }
+
   // Runs every "repair the shared data" migration together, in the right
   // order. Called once at boot (startApp) AND, critically, again every
   // time fresh data arrives from Firebase (applyRemoteState) — not just
@@ -3335,7 +3367,8 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     var b = migrateProVisionToStandardPathway();
     var c = pruneUnusedRetiredPathwaySteps();
     var d = backfillProgramCodes();
-    return a || b || c || d;
+    var e = backfillInstitutionCodes();
+    return a || b || c || d || e;
   }
 
   function findProgram(id){ return programs.find(function(p){ return p.id === id; }); }
