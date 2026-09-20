@@ -422,6 +422,7 @@
   .pc-name{ font-size:13px; font-weight:600; color:var(--ink); line-height:1.3; }
   .pc-inst{ font-size:11.5px; color:var(--ink-soft); margin-top:1px; }
   .pc-ref{ font-size:10.5px; color:var(--ink-faint); margin-top:4px; }
+  .pc-codes{ font-family:var(--font-mono); font-size:10.5px; color:var(--ink-faint); margin-top:2px; }
   .pc-bottom{ display:flex; align-items:center; gap:8px; margin-top:8px; }
   .pc-bar{ flex:1; height:5px; border-radius:99px; background:var(--surface-alt); overflow:hidden; }
   .pc-bar-fill{ height:100%; border-radius:99px; background:var(--primary); }
@@ -863,7 +864,7 @@
       <div class="sidebar">
         <div class="sidebar-head">
           <h3>Applications</h3>
-          <input type="text" class="search-input" id="searchInput" placeholder="Search program or institution…">
+          <input type="text" class="search-input" id="searchInput" placeholder="Search program, institution, or code…">
         </div>
         <div class="program-list" id="programList"></div>
         <div class="sidebar-foot">
@@ -2662,7 +2663,11 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     var term = searchTerm.trim().toLowerCase();
     var filtered = programs.filter(function(p){
       if(!term) return true;
-      return (p.program||'').toLowerCase().indexOf(term)>-1 || (p.institution||'').toLowerCase().indexOf(term)>-1 || (p.reference||'').toLowerCase().indexOf(term)>-1;
+      return (p.program||'').toLowerCase().indexOf(term)>-1 ||
+        (p.institution||'').toLowerCase().indexOf(term)>-1 ||
+        (p.reference||'').toLowerCase().indexOf(term)>-1 ||
+        (p.institutionCode||'').toLowerCase().indexOf(term)>-1 ||
+        (p.programCode||'').toLowerCase().indexOf(term)>-1;
     });
 
     if(!filtered.length){
@@ -2677,7 +2682,9 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
         '<div class="pc-top">'+
           '<div><div class="pc-name">'+escapeHtml(p.program||'Untitled program')+'</div>'+
           '<div class="pc-inst">'+escapeHtml(p.institution||'—')+'</div>'+
-          '<div class="pc-ref mono">'+escapeHtml(p.reference||'—')+'</div></div>'+
+          '<div class="pc-ref mono">'+escapeHtml(p.reference||'—')+'</div>'+
+          ((p.institutionCode || p.programCode) ? '<div class="pc-codes">'+escapeHtml([p.institutionCode, p.programCode].filter(Boolean).join(' \u00B7 '))+'</div>' : '')+
+          '</div>'+
         '</div>'+
         '<div style="margin-top:8px;">'+badgeHtml(d)+'</div>'+
         '<div class="pc-bottom">'+
@@ -2713,6 +2720,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     }
 
     var d = computeDerived(p);
+    getOrCreateProgramCode(p); // self-healing: mints one on first view if somehow still missing
 
     var ladderHtml = d.stages.map(function(s, i){
       var done = !!p.datesByStage[s.id];
@@ -2777,13 +2785,36 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
         )+
       '</div>';
 
+    // Suggests institutions that already exist, so a second application
+    // for the same one gets typed identically instead of drifting into
+    // a near-duplicate name that would silently mint a second code.
+    var institutionDatalistHtml = (function(){
+      var seen = {};
+      var names = [];
+      programs.forEach(function(other){
+        var name = (other.institution || '').trim();
+        var key = name.toLowerCase();
+        if(name && !seen[key]){ seen[key] = true; names.push(name); }
+      });
+      return '<datalist id="institutionNamesList">'+
+        names.map(function(name){ return '<option value="'+escapeAttr(name)+'">'; }).join('')+
+        '</datalist>';
+    })();
+
     panel.innerHTML =
       '<button class="btn btn-sm mobile-back-btn" id="mobileBackBtn">\u2190 Back to list</button>'+
       '<div class="detail-head">'+
         '<div class="detail-head-left">'+
           '<div class="ref-line">'+escapeHtml(p.reference||'No reference number')+'</div>'+
+          '<div class="ref-line inst-code-line">Institution code: <span id="instCodeValue" class="mono">'+escapeHtml(p.institutionCode||'\u2014 (enter institution name)')+'</span>'+
+            (p.institutionCode ? ' <button class="btn btn-sm" id="copyInstCodeBtn" type="button" title="Copy institution code">\u29C9 Copy</button>' : '')+
+          '</div>'+
+          '<div class="ref-line program-code-line">Program code: <span id="progCodeValue" class="mono">'+escapeHtml(p.programCode||'\u2014')+'</span>'+
+            (p.programCode ? ' <button class="btn btn-sm" id="copyProgCodeBtn" type="button" title="Copy program code">\u29C9 Copy</button>' : '')+
+          '</div>'+
           '<input class="field-title" data-field="program" value="'+escapeAttr(p.program)+'" placeholder="Program name">'+
-          '<input class="field-inst" data-field="institution" value="'+escapeAttr(p.institution)+'" placeholder="Institution name">'+
+          '<input class="field-inst" data-field="institution" list="institutionNamesList" value="'+escapeAttr(p.institution)+'" placeholder="Institution name">'+
+          institutionDatalistHtml+
         '</div>'+
         '<div class="detail-head-right">'+
           badgeHtml(d)+
@@ -2815,6 +2846,22 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
 
     panel.querySelector('[data-field="program"]').addEventListener('input', function(e){ updateField(p.id,'program', e.target.value); });
     panel.querySelector('[data-field="institution"]').addEventListener('input', function(e){ updateField(p.id,'institution', e.target.value); });
+    panel.querySelector('[data-field="institution"]').addEventListener('blur', function(){
+      // Only re-render if this actually produced/changed a code — typing
+      // into an empty or already-coded field on blur shouldn't cause an
+      // unnecessary re-render and loss of cursor position elsewhere.
+      var before = p.institutionCode;
+      getOrCreateInstitutionCode(p);
+      if(p.institutionCode !== before){ renderCurrentView(); }
+    });
+    var copyInstCodeBtn = panel.querySelector('#copyInstCodeBtn');
+    if(copyInstCodeBtn){
+      copyInstCodeBtn.addEventListener('click', function(){ copyInstitutionCodeOnly(p.id, copyInstCodeBtn); });
+    }
+    var copyProgCodeBtn = panel.querySelector('#copyProgCodeBtn');
+    if(copyProgCodeBtn){
+      copyProgCodeBtn.addEventListener('click', function(){ copyProgramCodeOnly(p.id, copyProgCodeBtn); });
+    }
     panel.querySelector('[data-field="reference"]').addEventListener('input', function(e){ updateField(p.id,'reference', e.target.value); });
     panel.querySelector('#notesField').addEventListener('input', function(e){ updateField(p.id,'notes', e.target.value); });
 
@@ -3239,6 +3286,23 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     return true;
   }
 
+  // Every NEW application gets a PRG-XXXX program code the moment it's
+  // created (see addProgram / generateProgramCode below). This backfills
+  // the ones that already existed before that — every application already
+  // in the tracker, in one pass, the first time any client on the updated
+  // file loads. Runs through runSelfHealingMigrations() alongside the
+  // other repairs so it also catches a record that somehow reaches this
+  // client without one later (e.g. synced from a teammate still on an
+  // older copy of the file).
+  function backfillProgramCodes(){
+    var missing = programs.filter(function(p){ return !p.programCode; });
+    if(!missing.length) return false;
+    missing.forEach(function(p){ p.programCode = generateProgramCode(); });
+    logAudit('data', 'Assigned a program code to '+missing.length+' existing application(s) that predated the program code system.');
+    logActivity('Updated', 'Program codes backfilled for '+missing.length+' existing application(s)');
+    return true;
+  }
+
   // Runs every "repair the shared data" migration together, in the right
   // order. Called once at boot (startApp) AND, critically, again every
   // time fresh data arrives from Firebase (applyRemoteState) — not just
@@ -3253,7 +3317,8 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     var a = mergeDuplicateNamedStages();
     var b = migrateProVisionToStandardPathway();
     var c = pruneUnusedRetiredPathwaySteps();
-    return a || b || c;
+    var d = backfillProgramCodes();
+    return a || b || c || d;
   }
 
   function findProgram(id){ return programs.find(function(p){ return p.id === id; }); }
@@ -3406,6 +3471,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     var nextId = programs.reduce(function(m,p){ return Math.max(m,p.id); }, 0) + 1;
     var np = {
       id:nextId, reference:'', program:'New program', institution:'', notes:'', reviewerIds:[],
+      programCode: generateProgramCode(),
       // Exactly the 11 standard stages (Sent to reviewers + the 10 usual
       // ones) — not every stage that happens to be in the shared library,
       // which would also sweep in any custom steps other programs have
@@ -4117,6 +4183,171 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var n,r,i,a,
     }
 
     return doc;
+  }
+
+  /* ==================================================================
+     REVIEWER-SAFE SUMMARY — institution anonymization for anything
+     copied out to external reviewers. Read-only with respect to the
+     security model: nothing here changes who can access the database,
+     since reviewers never sign into this dashboard at all (they work
+     from PA-R1/PA-R3 documents sent by email). This only affects what
+     text gets copied out for that correspondence.
+  ================================================================== */
+
+  // INS-XXXX, 4 random alphanumeric chars, excludes O/0/I/1 to avoid
+  // visual confusion. Not sequential on purpose — a sequential code
+  // would leak creation order and let someone guess adjacent codes.
+  function institutionCodeChars(){ return 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; }
+
+  function generateInstitutionCode(){
+    var chars = institutionCodeChars();
+    var existing = {};
+    programs.forEach(function(p){ if(p.institutionCode){ existing[p.institutionCode] = true; } });
+    var code;
+    do{
+      var suffix = '';
+      for(var i=0;i<4;i++){ suffix += chars.charAt(Math.floor(Math.random()*chars.length)); }
+      code = 'INS-' + suffix;
+    } while(existing[code]);
+    return code;
+  }
+
+  // Free-text fields drift — "Cyber Knowledge Academy" vs "cyber
+  // knowledge academy " (trailing space) are the same institution to a
+  // person but not to ===. Normalize before comparing so a second
+  // application for an institution that already exists reliably finds
+  // its code instead of silently minting a duplicate. Same reasoning as
+  // the multi-program sharing below — this is what makes that sharing
+  // actually reliable in practice, not just in the happy-path case.
+  function normalizeInstitutionName(name){ return (name || '').trim().toLowerCase(); }
+
+  // One institution can submit several distinct program applications
+  // (e.g. the same academy applying for Medical Coding and Billing AND
+  // Sterile Processing separately) — they must all share one code, not
+  // get a fresh one each time. This looks up by the CURRENT institution
+  // name every time (not just once), so editing a program's institution
+  // to match an already-coded one adopts that code instead of keeping a
+  // stale one from before the edit.
+  function getOrCreateInstitutionCode(p){
+    var norm = normalizeInstitutionName(p.institution);
+    if(!norm){ return ''; }
+    var match = programs.find(function(other){
+      return other !== p && normalizeInstitutionName(other.institution) === norm && other.institutionCode;
+    });
+    if(match){
+      if(p.institutionCode !== match.institutionCode){ p.institutionCode = match.institutionCode; saveData(); }
+      return p.institutionCode;
+    }
+    if(!p.institutionCode){
+      p.institutionCode = generateInstitutionCode();
+      saveData();
+    }
+    return p.institutionCode;
+  }
+
+  /* ==================================================================
+     PROGRAM CODE — identifies the application itself, not the
+     institution. Same PRG-XXXX shape and alphabet as the institution
+     code above, but where an institution code is deliberately SHARED
+     across every program that institution submits, a program code is
+     the opposite: unique to this one application record, always, even
+     when it's the institution's second or third submission. That's what
+     makes "search by program code" resolve to exactly one result.
+  ================================================================== */
+
+  function generateProgramCode(){
+    var chars = institutionCodeChars(); // same safe alphabet, no O/0/I/1
+    var existing = {};
+    programs.forEach(function(p){ if(p.programCode){ existing[p.programCode] = true; } });
+    var code;
+    do{
+      var suffix = '';
+      for(var i=0;i<4;i++){ suffix += chars.charAt(Math.floor(Math.random()*chars.length)); }
+      code = 'PRG-' + suffix;
+    } while(existing[code]);
+    return code;
+  }
+
+  // No institution-name lookup here (unlike getOrCreateInstitutionCode) —
+  // a program code identifies this one application record, full stop —
+  // so this just mints one the first time it's missing and persists it.
+  // In practice it's almost always already set: addProgram() mints one at
+  // creation, and backfillProgramCodes() (in the self-healing migrations)
+  // catches every pre-existing application at load. This is the last-resort
+  // safety net for both.
+  function getOrCreateProgramCode(p){
+    if(!p.programCode){
+      p.programCode = generateProgramCode();
+      saveData();
+    }
+    return p.programCode;
+  }
+
+  // Copies just the institution code — used for the small "Copy" button
+  // next to the code display, separate from the full reviewer-safe
+  // summary below. Confirms by briefly changing the button's own label
+  // rather than an alert, since this is meant for frequent, quick use.
+  function copyInstitutionCodeOnly(programId, btnEl){
+    var p = findProgram(programId);
+    if(!p){ return; }
+    var code = getOrCreateInstitutionCode(p);
+    if(!code){ window.alert('Enter an institution name first.'); return; }
+
+    function flash(){
+      if(!btnEl){ return; }
+      var original = btnEl.textContent;
+      btnEl.textContent = '\u2713 Copied';
+      setTimeout(function(){ btnEl.textContent = original; }, 1200);
+    }
+    function manualFallback(){
+      window.alert('Could not copy automatically — here is the code to copy manually:\n\n' + code);
+    }
+
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(code).then(flash, manualFallback);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = code;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try{ document.execCommand('copy'); flash(); }
+      catch(err){ manualFallback(); }
+      document.body.removeChild(ta);
+    }
+  }
+
+  // Copies just the program code — same quick-use pattern as
+  // copyInstitutionCodeOnly above, for the program code's own Copy button.
+  function copyProgramCodeOnly(programId, btnEl){
+    var p = findProgram(programId);
+    if(!p){ return; }
+    var code = getOrCreateProgramCode(p);
+
+    function flash(){
+      if(!btnEl){ return; }
+      var original = btnEl.textContent;
+      btnEl.textContent = '\u2713 Copied';
+      setTimeout(function(){ btnEl.textContent = original; }, 1200);
+    }
+    function manualFallback(){
+      window.alert('Could not copy automatically — here is the code to copy manually:\n\n' + code);
+    }
+
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(code).then(flash, manualFallback);
+    } else {
+      var ta = document.createElement('textarea');
+      ta.value = code;
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      try{ document.execCommand('copy'); flash(); }
+      catch(err){ manualFallback(); }
+      document.body.removeChild(ta);
+    }
   }
 
   // Entry point wired to both the detail panel's "PDF report" button and
